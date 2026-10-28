@@ -1,0 +1,18 @@
+# Local Redis + RabbitMQ for richrelay buffers.   docker compose up -d
+# Redis uses AOF so the queue survives a Redis restart. RabbitMQ UI: http://localhost:15672
+services:
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: ["redis-data:/data"]
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: richrelay
+      RABBITMQ_DEFAULT_PASS: change-me
+    ports: ["5672:5672", "15672:15672"]
+    volumes: ["rabbitmq-data:/var/lib/rabbitmq"]
+volumes:
+  redis-data: {}
+  rabbitmq-data: {}

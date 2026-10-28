@@ -28,6 +28,10 @@ class RedisBuffer(Buffer):
         self.socket_timeout = socket_timeout
         self._client = client
         self._owns_client = client is None  # never close a client the caller injected
+        # Create the client NOW (no network I/O happens). redis-py registers an atexit hook when a
+        # client is created; doing it lazily inside the worker thread fails during interpreter exit
+        # ("can't register atexit after shutdown") and the events would be lost.
+        self._c()
 
     def _c(self) -> Any:
         if self._client is None:
@@ -105,6 +109,7 @@ class RedisCache:
         self.socket_timeout = socket_timeout
         self._client = client
         self._owns_client = client is None
+        self._c()  # eager, see RedisBuffer
 
     def _c(self) -> Any:
         if self._client is None:

@@ -23,6 +23,10 @@ class RabbitMQBuffer(Buffer):
         super().__init__()
         self.url, self.queue, self.max_items, self.durable = url, queue, max_items, durable
         self.overflow = check_overflow(overflow)
+        try:  # import eagerly: importing inside the worker thread during exit is unreliable
+            import pika  # noqa: F401
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError("RabbitMQBuffer needs: pip install 'richrelay[rabbitmq]'") from exc
         self._conn: Any = None
         self._ch: Any = None
         self._pending: List[Tuple[int, bytes]] = []  # (delivery_tag, body)

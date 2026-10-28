@@ -104,6 +104,11 @@ class Channel:
             self._deadline = time.monotonic() + timeout
             self._cv.notify_all()
         self._thread.join(timeout + 1.0)
+        lost = self.spill.known_len
+        if lost:
+            print(f"[richrelay:{self.name}] WARNING: {lost} event(s) could not be delivered or stored "
+                  f"in the configured buffer and were lost at exit (last error: {self._last_error})",
+                  file=sys.stderr)
         for obj in (self.transport, self.buffer):
             try:
                 if obj is not None:

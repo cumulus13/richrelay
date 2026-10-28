@@ -76,6 +76,196 @@ richrelay send -d "udp://127.0.0.1:5514?format=rfc5424" -l warning "hello"   # t
 
 `setup()` with no arguments reads whitespace-separated URLs from `$RICHRELAY_URLS`.
 
+> New to the buffers? Redis/RabbitMQ are **not** used by default: see
+> [Where do Redis and RabbitMQ fit?](#where-do-redis-and-rabbitmq-fit-read-this-first).
+
+## Where do Redis and RabbitMQ fit? (read this first)
+
+**By default, nothing goes to Redis or RabbitMQ.** When you call `Console().log(...)`, `rich.print(...)`,
+`Console().print_exception()` or `logger.exception(...)`, richrelay sends the message **straight to your
+receiver** (rsyslog, Graylog, Logstash, ...). Redis/RabbitMQ are a **waiting room**:
+
+- A message is placed there **only when sending to the receiver fails** (receiver down, network cut).
+- When the receiver is reachable again, the messages are taken out and delivered **in the original order**,
+  and only then removed from Redis/RabbitMQ.
+- You opt in by attaching a `buffer=` to a destination. Without a `buffer=`, failed messages are kept in a
+  bounded in-memory list that is **lost when the process exits**.
+
+So if you look into Redis or RabbitMQ while the receiver is healthy, they are empty. That is expected.
+
+```mermaid
+flowchart TD
+    A["Console().log(...)<br/>rich.print(...)<br/>Console().print_exception()<br/>logger.exception(...)<br/>uncaught exception"] --> E(["Event<br/>(message + traceback)"])
+    E --> Q{"Receiver reachable<br/>and buffer empty?"}
+    Q -- "yes" --> RX["Receiver<br/>rsyslog / Graylog / ..."]
+    Q -- "no (send failed)" --> BUF[("Buffer you configured<br/>Redis list / RabbitMQ queue / SQLite")]
+    BUF -- "retry with backoff;<br/>when the receiver is back" --> RX
+    RX -. "accepted: remove from buffer" .-> BUF
+```
+
+[![Where do Redis and RabbitMQ fit?](https://files.catbox.moe/v94qmd.jpg)](https://files.catbox.moe/v94qmd.jpg)
+
+A destination has **one** buffer. For two independent queues use two destinations (each gets every event and
+has its own receiver and its own buffer).
+
+### Step 1: run Redis / RabbitMQ
+
+Docker (file included in this repo):
+
+```bash
+docker compose up -d          # redis on :6379, rabbitmq on :5672, RabbitMQ UI on http://localhost:15672
+```
+
+Or natively (Debian/Ubuntu shown; macOS: `brew install redis rabbitmq`; on Windows use Docker or WSL):
+
+```bash
+sudo apt install redis-server rabbitmq-server
+redis-cli ping                                   # -> PONG
+sudo rabbitmqctl add_user richrelay change-me
+sudo rabbitmqctl set_permissions -p / richrelay ".*" ".*" ".*"
+```
+
+The default RabbitMQ `guest` user can only log in from `localhost`; create your own user for anything else.
+Redis with a password: `redis://:PASSWORD@host:6379/0`. TLS: `rediss://...` and `amqps://...` (standard
+redis-py / pika URL forms; not covered by this project's tests).
+
+### Step 2: install the client libraries
+
+```bash
+pip install "richrelay[redis]"       # RedisBuffer / RedisCache
+pip install "richrelay[rabbitmq]"    # RabbitMQBuffer
+```
+
+A missing library fails immediately at construction with a clear message, not later in the background.
+
+### Step 3: attach the buffer to a destination
+
+Pick **one** of the three styles. They are equivalent.
+
+**A. Python objects (clearest):**
+
+```python
+import richrelay
+from richrelay import tcp, RedisBuffer, RabbitMQBuffer
+
+richrelay.setup(
+    [
+        # RFC 5424 to rsyslog; while it is down, messages wait in a Redis list
+        tcp("10.0.0.5", 514, format="rfc5424",
+            buffer=RedisBuffer("redis://localhost:6379/0", key="logs:spool", max_items=200_000)),
+
+        # JSON to Logstash; while it is down, messages wait in a durable RabbitMQ queue
+        tcp("10.0.0.6", 5000, format="json",
+            buffer=RabbitMQBuffer("amqp://richrelay:change-me@localhost:5672/%2F", queue="logs.spool")),
+    ],
+    app_name="myapp",
+    attach_logging=True,          # also forward the logging module
+)
+```
+
+**B. URL strings.** The buffer URL goes in the `buffer=` query value and must be URL-encoded
+(`quote(url, safe="")`), because it contains `?`, `&` and `/`:
+
+```python
+from urllib.parse import quote
+buf = quote("redis://localhost:6379/0?key=logs:spool&max_items=200000", safe="")
+richrelay.setup([f"tcp://10.0.0.5:514?format=rfc5424&buffer={buf}"], app_name="myapp")
+```
+
+Buffer URL options: Redis `key`, `max_items`, `overflow`; RabbitMQ `queue`, `max_items`, `overflow`;
+SQLite `sqlite:///path/spool.db?max_mb=50&max_items=100000`.
+
+**C. Environment variable, nothing in code but `setup()`** (`examples/env_config.py`):
+
+```bash
+export RICHRELAY_URLS="tcp://10.0.0.5:514?format=rfc5424&buffer=redis%3A%2F%2Flocalhost%3A6379%2F0%3Fkey%3Dlogs%3Aspool"
+```
+
+```python
+richrelay.setup(app_name="myapp", attach_logging=True)   # reads $RICHRELAY_URLS (space separated)
+```
+
+### Step 4: write your code as usual
+
+Nothing here mentions Redis or RabbitMQ. The buffer is chosen once in `setup()`:
+
+```python
+import logging
+from rich.console import Console
+
+console = Console()
+console.log("payment accepted", {"order": 1001})            # relayed, INFO
+console.print("[bold]hello[/bold]")                          # relayed, INFO
+
+try:
+    1 / 0
+except ZeroDivisionError:
+    console.print_exception()                                # relayed with the full traceback, ERROR
+    logging.getLogger("billing").exception("charge failed")  # relayed with the traceback, ERROR
+
+raise RuntimeError("boom")                                   # uncaught: relayed (CRITICAL) before exit
+```
+
+Consoles created before or after `setup()` are both covered (the hook is on the `Console` class).
+`from rich import print` also works. Use `richrelay.shutdown()` or let the `atexit` hook run; both store
+anything still unsent into the configured buffer before the process ends.
+
+### Step 5: see it work (receiver down)
+
+Run the app above with the receiver stopped, then look inside the queues:
+
+```console
+$ redis-cli LLEN logs:spool
+2
+$ rabbitmqctl list_queues name messages
+name         messages
+logs.spool   2
+```
+
+A traceback is stored **inside the message**, after the first line. This is a real item from Redis
+(RFC 5424):
+
+```text
+<11>1 2026-10-28T10:54:01.336830Z vm envapp 1960 - [richrelay@32473 logger="billing" source="logging" thread="MainThread" file="/tmp/env_app.py:10" func="<module>"] charge failed
+Traceback (most recent call last):
+  File "/tmp/env_app.py", line 8, in <module>
+    1 / 0
+    ~~^~~
+ZeroDivisionError: division by zero
+```
+
+and the matching RabbitMQ message with `format="json"` (traceback in the `exception` field, shortened here):
+
+```json
+{"timestamp":"2026-10-28T10:54:01.336735Z","level":"INFO","severity":6,"app":"envapp","logger":"rich.log",
+ "source":"rich.log","message":"config loaded\n{'env': 'prod'}","file":"/tmp/env_app.py:6","func":"<module>"}
+```
+
+Start the receiver (`richrelay listen --tcp 5514` or your real syslog server). The queues drain in order and
+`LLEN` / `messages` go back to `0`. Everything above is runnable as
+`python examples/store_and_forward_demo.py sqlite|redis|rabbitmq`.
+
+| Where the traceback ends up | Format |
+|---|---|
+| After the first line of the message | `rfc5424`, `rfc3164`, `logfmt` (`exc=`), `plain` |
+| `exception` field | `json` |
+| `full_message` field | `gelf` |
+
+### Troubleshooting
+
+| Symptom | Cause / check |
+|---|---|
+| Redis/RabbitMQ stays empty | The receiver is up (expected), or the destination has no `buffer=`, or `setup()` was not called. Check `relay.stats()["destinations"][0]`: `state`, `buffered`, `last_error`. |
+| `WARNING: N event(s) ... were lost at exit` on stderr | The buffer itself was unusable (Redis/RabbitMQ down) *and* the receiver was down. Messages were only in memory. Fix the buffer connection; see `last_error`. |
+| `last_error: buffer: ... redis ...` | Wrong URL/password, or Redis unreachable. Delivery still works while the receiver is up. |
+| `PRECONDITION_FAILED` (RabbitMQ) | The queue exists with different `max_items`/`overflow`. Delete the queue or use a new name. |
+| RabbitMQ access / authentication error | The default `guest` user only works from localhost. Create your own user (Step 1) and put it in the URL. |
+| Messages arrive twice after a crash | Replay is at-least-once: an item is removed only after the receiver accepted it. |
+
+**Not supported in 0.1.0:** sending *every* message through Redis/RabbitMQ even while the receiver is healthy
+(queue as the transport, with a separate consumer process shipping to syslog). The buffers are used for
+store-and-forward only.
+
 ## Architecture
 
 ```mermaid
@@ -229,7 +419,7 @@ unix:///dev/log
 ...&buffer=<URL-encoded buffer URL>
 ```
 
-## Buffers (what happens while the receiver is down)
+## Buffers reference (what happens while the receiver is down)
 
 | Buffer | Survives restart | Bound | Extra dependency | Use it for |
 |---|---|---|---|---|
