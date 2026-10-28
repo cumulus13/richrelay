@@ -1,0 +1,81 @@
+name: Publish to PyPI
+
+# Release flow:
+#   1. bump src/richrelay/_version.py, update CHANGELOG.md, merge to main
+#   2. git tag v0.1.0 && git push --tags      (or create a GitHub Release)
+#   3. this workflow tests, builds and uploads to PyPI via Trusted Publishing (OIDC, no token).
+# One-time setup on pypi.org: Account -> Publishing -> "Add a pending publisher"
+#   owner=cumulus13  repository=richrelay  workflow=publish.yml  environment=pypi
+# Manual run (workflow_dispatch) publishes to TestPyPI instead.
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+      - name: Tag must match package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(python -c "exec(open('src/richrelay/_version.py').read()); print(__version__)")
+          if [ "v$VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package version v$VERSION"; exit 1
+          fi
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/richrelay/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        # Token fallback instead of Trusted Publishing:
+        #   with:
+        #     password: ${{ secrets.PYPI_API_TOKEN }}
+
+  publish-testpypi:
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/richrelay/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

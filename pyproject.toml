@@ -1,0 +1,132 @@
+[build-system]
+requires = [
+    "hatchling>=1.21",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "richrelay"
+version = "1.0.1"
+description = "Send rich.print, Console.log, logging and exceptions to syslog (RFC 5424/3164), TCP/UDP/TLS receivers, with store-and-forward via SQLite, Redis or RabbitMQ."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Hadi Cahyadi", email = "cumulus13@gmail.com" },
+]
+keywords = [
+    "rich",
+    "syslog",
+    "rfc5424",
+    "rfc3164",
+    "logging",
+    "gelf",
+    "redis",
+    "rabbitmq",
+    "log-shipping",
+    "store-and-forward",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Logging",
+    "Topic :: System :: Networking :: Monitoring",
+    "Typing :: Typed",
+]
+dependencies = [
+    "rich>=12.0",
+]
+
+[project.license]
+text = "MIT"
+
+[project.optional-dependencies]
+redis = [
+    "redis>=4.5",
+]
+rabbitmq = [
+    "pika>=1.3",
+]
+all = [
+    "redis>=4.5",
+    "pika>=1.3",
+]
+dev = [
+    "pytest>=7",
+    "fakeredis>=2.20",
+    "redis>=4.5",
+    "pika>=1.3",
+    "ruff>=0.5",
+    "build",
+    "twine",
+]
+
+[project.scripts]
+richrelay = "richrelay.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/cumulus13/richrelay"
+Source = "https://github.com/cumulus13/richrelay"
+Issues = "https://github.com/cumulus13/richrelay/issues"
+Changelog = "https://github.com/cumulus13/richrelay/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/richrelay",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "tests",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+pythonpath = [
+    "src",
+    "tests",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+src = [
+    "src",
+    "tests",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "W",
+]
+ignore = [
+    "E501",
+    "E701",
+    "E702",
+    "UP006",
+    "UP007",
+    "UP035",
+    "UP037",
+    "UP045",
+    "B904",
+]
