@@ -51,6 +51,7 @@ class Channel:
         self._attempts = 0
         self._online = True
         self._deadline: Optional[float] = None
+        self._abort = False
         self._last_error: Optional[str] = None
         self._warned_at = 0.0
         self.counters: Dict[str, int] = dict.fromkeys(
@@ -104,11 +105,18 @@ class Channel:
             self._deadline = time.monotonic() + timeout
             self._cv.notify_all()
         self._thread.join(timeout + 1.0)
+        if self._thread.is_alive():
+            # Worker is stuck (typically inside connect()). Never close the transport/buffer under
+            # it: tell it to stop; it releases its own resources when it exits.
+            self._abort = True
+            self.transport.cancelled = True
         lost = self.spill.known_len
         if lost:
             print(f"[richrelay:{self.name}] WARNING: {lost} event(s) could not be delivered or stored "
                   f"in the configured buffer and were lost at exit (last error: {self._last_error})",
                   file=sys.stderr)
+
+    def _release(self) -> None:
         for obj in (self.transport, self.buffer):
             try:
                 if obj is not None:
@@ -184,6 +192,8 @@ class Channel:
             done = 0
             failure: Optional[TransportError] = None
             for payload in batch:
+                if self._abort:
+                    break
                 try:
                     self.transport.send(payload)
                 except TransportError as exc:
@@ -199,6 +209,8 @@ class Channel:
                 src.discard(done)
             except Exception as exc:
                 self._note_error("buffer", exc)
+            if self._abort:
+                return "deadline"
             if failure is not None:
                 self._note_error("transport", failure)
                 return "transport"
@@ -254,6 +266,12 @@ class Channel:
         return 1.0
 
     def _run(self) -> None:
+        try:
+            self._loop()
+        finally:
+            self._release()
+
+    def _loop(self) -> None:
         try:
             self._has_buffered = (self.buffer is not None and len(self.buffer) > 0) or False
         except Exception as exc:

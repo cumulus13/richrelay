@@ -5,6 +5,8 @@ from richrelay import Relay, SQLiteBuffer, tcp, udp
 from richrelay.parsers import parse_message
 
 FAST = dict(backoff_initial=0.05, backoff_max=0.2)
+# Windows needs ~2 s to refuse a connection; a short timeout keeps the tests fast and deterministic
+FAST_TCP = dict(FAST, connect_timeout=0.3)
 
 
 def free_port():
@@ -44,7 +46,7 @@ def test_store_and_forward_sqlite_in_order(tmp_path, collector):
     from richrelay.listener import Receiver
     port = free_port()
     buf = SQLiteBuffer(tmp_path / "spool.db", max_bytes=None)
-    r = Relay([tcp("127.0.0.1", port, buffer=buf, **FAST)], app_name="t", hostname="h")
+    r = Relay([tcp("127.0.0.1", port, buffer=buf, **FAST_TCP)], app_name="t", hostname="h")
     try:
         for i in range(20):
             r.info(f"msg-{i}")
@@ -69,14 +71,14 @@ def test_sqlite_spool_survives_restart(tmp_path, collector):
     from richrelay.listener import Receiver
     port = free_port()
     db = tmp_path / "spool.db"
-    r1 = Relay([tcp("127.0.0.1", port, buffer=SQLiteBuffer(db, max_bytes=None), **FAST)], app_name="t")
+    r1 = Relay([tcp("127.0.0.1", port, buffer=SQLiteBuffer(db, max_bytes=None), **FAST_TCP)], app_name="t")
     r1.info("persisted-1")
     r1.info("persisted-2")
     r1.flush(5)
     r1.close(1)  # "process exits" while the receiver is down
     rx = Receiver(collector, tcp_port=port).start()
     try:
-        r2 = Relay([tcp("127.0.0.1", port, buffer=SQLiteBuffer(db, max_bytes=None), **FAST)], app_name="t")
+        r2 = Relay([tcp("127.0.0.1", port, buffer=SQLiteBuffer(db, max_bytes=None), **FAST_TCP)], app_name="t")
         try:
             assert r2.wait_drained(10)
             assert collector.wait(2)
@@ -91,7 +93,7 @@ def test_receiver_dies_midstream_then_returns(collector):
     from richrelay.listener import Receiver
     port = free_port()
     rx = Receiver(collector, tcp_port=port).start()
-    r = Relay([tcp("127.0.0.1", port, **FAST)], app_name="t")
+    r = Relay([tcp("127.0.0.1", port, **FAST_TCP)], app_name="t")
     try:
         r.info("before")
         assert collector.wait(1)
@@ -112,7 +114,7 @@ def test_receiver_dies_midstream_then_returns(collector):
 
 def test_memory_spill_is_bounded():
     port = free_port()
-    r = Relay([tcp("127.0.0.1", port, spill_items=10, **FAST)], app_name="t")
+    r = Relay([tcp("127.0.0.1", port, spill_items=10, **FAST_TCP)], app_name="t")
     try:
         for i in range(50):
             r.info(f"m{i}")
@@ -152,3 +154,43 @@ def test_multiple_destinations_different_formats(make_receiver, collector):
         r.info("fan-out")
         assert collector.wait(2)
     assert {parse_message(t).format for t in collector.texts} == {"rfc3164", "rfc5424"}
+
+
+class _SlowConnectTCP(__import__("richrelay").TCPTransport):
+    """Simulates Windows, where connecting to a closed port takes ~2 s to be refused."""
+
+    delay = 0.0
+
+    def _connect(self):
+        if self.delay:
+            time.sleep(self.delay)
+        super()._connect()
+
+
+def test_close_timeout_during_slow_connect_does_not_duplicate(tmp_path, collector):
+    """Regression (seen on Windows CI): close() timed out while the worker was still connecting,
+    closed the buffer under it, and the lingering worker later re-sent a batch that the next
+    relay on the same spool file also sent -> every message delivered twice."""
+    from richrelay import Destination
+    from richrelay.listener import Receiver
+    port = free_port()
+    db = tmp_path / "spool.db"
+    slow = _SlowConnectTCP("127.0.0.1", port)
+    r1 = Relay([Destination(slow, buffer=SQLiteBuffer(db, max_bytes=None), **FAST)], app_name="t")
+    r1.info("persisted-1")
+    r1.info("persisted-2")
+    assert r1.flush(5)
+    slow.delay = 2.0          # the final drain attempt inside close() will now block in connect
+    r1.close(0.3)             # join times out while the worker is still inside connect
+    rx = Receiver(collector, tcp_port=port).start()
+    try:
+        r2 = Relay([tcp("127.0.0.1", port, buffer=SQLiteBuffer(db, max_bytes=None), **FAST_TCP)], app_name="t")
+        try:
+            assert r2.wait_drained(10)
+            assert collector.wait(2)
+            time.sleep(2.5)   # give the lingering r1 worker time to wake up and misbehave
+        finally:
+            r2.close()
+    finally:
+        rx.stop()
+    assert [parse_message(t).message for t in collector.texts] == ["persisted-1", "persisted-2"]

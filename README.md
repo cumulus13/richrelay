@@ -471,6 +471,9 @@ Cache writes are best effort and never retried; failures are counted in `relay.s
 - **MemoryBuffer is lost on exit.** Use SQLite/Redis/RabbitMQ if that matters. On exit, `close()` makes a
   last delivery attempt; anything still undeliverable stays in the persistent buffer.
 - **GELF** is sent uncompressed and **without UDP chunking**; keep GELF-over-UDP messages small or use TCP.
+- **`close()` and slow networks**: `close(timeout)` waits at most `timeout` for the final delivery attempt. If the
+  worker is still stuck connecting, it is told to stop and its transport is cancelled, so it never sends after
+  `close()` returned and the next owner of the same spool will not receive duplicates from it.
 - **SQLite**: use one process per spool file (size counters are kept in memory).
 - **fork()**: worker threads do not survive a fork; create the relay after forking (e.g. in each
   gunicorn/multiprocessing worker).

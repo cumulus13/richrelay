@@ -4,25 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "richrelay"
-version = "1.0.6"
+version = "1.0.7"
 description = "Send rich.print, Console.log, logging and exceptions to syslog (RFC 5424/3164), TCP/UDP/TLS receivers, with store-and-forward via SQLite, Redis or RabbitMQ."
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [
-    { name = "Hadi Cahyadi", email = "cumulus13@gmail.com" },
-]
-keywords = [
-    "rich",
-    "syslog",
-    "rfc5424",
-    "rfc3164",
-    "logging",
-    "gelf",
-    "redis",
-    "rabbitmq",
-    "log-shipping",
-    "store-and-forward",
-]
+authors = [{ name = "cumulus13", email = "cumulus13@gmail.com" }]
+keywords = ["rich", "syslog", "rfc5424", "rfc3164", "logging", "gelf", "redis", "rabbitmq", "log-shipping", "store-and-forward"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",

@@ -64,7 +64,7 @@ def test_redis_as_queue_when_receiver_down(rc, collector):
     client, url = rc
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
     buf = RedisBuffer(url, key="t:spool", client=client)
-    r = Relay([tcp("127.0.0.1", port, buffer=buf, backoff_initial=0.05, backoff_max=0.2)], app_name="t")
+    r = Relay([tcp("127.0.0.1", port, buffer=buf, backoff_initial=0.05, backoff_max=0.2, connect_timeout=0.3)], app_name="t")
     try:
         for i in range(10):
             r.info(f"q{i}")
@@ -86,7 +86,7 @@ def test_redis_down_falls_back_to_memory_spill(collector):
     from richrelay.listener import Receiver
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
     dead = RedisBuffer("redis://127.0.0.1:1/0", socket_timeout=0.2)
-    r = Relay([tcp("127.0.0.1", port, buffer=dead, backoff_initial=0.05, backoff_max=0.2)], app_name="t")
+    r = Relay([tcp("127.0.0.1", port, buffer=dead, backoff_initial=0.05, backoff_max=0.2, connect_timeout=0.3)], app_name="t")
     try:
         r.info("a"); r.info("b")
         r.flush(5)

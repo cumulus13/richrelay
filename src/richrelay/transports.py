@@ -25,6 +25,9 @@ class TransportError(Exception):
 class Transport:
     kind = "base"
     default_max_bytes = 1_048_576
+    #: set by Channel.close() when the worker could not stop in time; a cancelled transport
+    #: refuses to send so a lingering worker cannot deliver a batch the next owner also sends.
+    cancelled = False
 
     def send(self, payload: bytes) -> None:  # pragma: no cover - interface
         raise NotImplementedError
@@ -70,6 +73,8 @@ class UDPTransport(Transport):
         raise last or OSError("no usable address")
 
     def send(self, payload: bytes) -> None:
+        if self.cancelled:
+            raise TransportError("transport cancelled")
         try:
             if self._sock is None:
                 self._connect()
@@ -189,6 +194,8 @@ class TCPTransport(Transport):
         return payload
 
     def send(self, payload: bytes) -> None:
+        if self.cancelled:
+            raise TransportError("transport cancelled")
         data = self._frame(payload)
         try:
             if not self._alive():
@@ -196,6 +203,9 @@ class TCPTransport(Transport):
         except OSError as exc:  # includes ssl.SSLError, timeouts, DNS errors
             self._drop()
             raise TransportError(f"{self.kind} {self.host}:{self.port}: {exc}") from exc
+        if self.cancelled:  # cancelled while we were blocked in connect()
+            self._drop()
+            raise TransportError("transport cancelled")
         try:
             assert self._sock is not None
             self._sock.sendall(data)
@@ -230,6 +240,8 @@ class UnixTransport(Transport):
         self._sock: Optional[socket.socket] = None
 
     def send(self, payload: bytes) -> None:
+        if self.cancelled:
+            raise TransportError("transport cancelled")
         try:
             if self._sock is None:
                 s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)

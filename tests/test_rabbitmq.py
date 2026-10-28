@@ -49,7 +49,7 @@ def test_queue_when_receiver_down(queue, collector):
     from richrelay.listener import Receiver
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
     buf = RabbitMQBuffer(URL, queue=queue)
-    r = Relay([tcp("127.0.0.1", port, buffer=buf, backoff_initial=0.05, backoff_max=0.2)], app_name="t")
+    r = Relay([tcp("127.0.0.1", port, buffer=buf, backoff_initial=0.05, backoff_max=0.2, connect_timeout=0.3)], app_name="t")
     try:
         for i in range(10):
             r.info(f"q{i}")
