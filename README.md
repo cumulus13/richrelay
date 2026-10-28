@@ -317,7 +317,7 @@ using PyPI Trusted Publishing (one-time setup is described at the top of `.githu
 
 ## License
 
-(MIT)[LICENSE]
+[MIT](LICENSE)
 
 ---
 
