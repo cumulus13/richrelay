@@ -112,48 +112,48 @@ graph LR
     CR_Text[CORE/RUNNER.PY<br/>one process group per download] -->|yt-dlp Python API,<br/>progress as JSON lines| CR_Details;
 
     %% Component Groups
-    subgraph Browser Group
+    subgraph Browser["Browser Group"]
         B_Icon[BROWSER]
     end
     class B_Icon icon;
 
-    subgraph WebApp Group
+    subgraph WebApp["WebApp Group"]
         WA_Icon[Web App<br/>DJANGO +<br/>GUNICORN]
     end
     class WA_Icon icon;
 
-    subgraph LiveSpeed Group
+    subgraph LiveSpeed["LiveSpeed Group"]
         LS_Icon[Live Speed]
         LS_Text[queue, settings, history]
     end
     class LS_Icon icon;
     class LS_Text label;
 
-    subgraph Redis Group
+    subgraph Redis["Redis Group"]
         Redis_Icon[Redis]
     end
     class Redis_Icon icon;
 
-    subgraph Postgres Group
+    subgraph Postgres["Postgres Group"]
         PG_Icon[POSTGRESQL]
         PG_Text[queue, settings, history]
     end
     class PG_Icon icon;
     class PG_Text label;
 
-    subgraph CTLWorker Group
+    subgraph CTLWorker["CTLWorker Group"]
         CW_Icon[CTL<br/>WORKER]
         CW_Text[tick 2s,<br/>reaper, auto-purge]
     end
     class CW_Icon icon;
     class CW_Text label;
 
-    subgraph DownloadsWorker Group
+    subgraph DownloadsWorker["DownloadsWorker Group"]
         DW_Icon[DOWNLOADS<br/>WORKER]
     end
     class DW_Icon icon;
 
-    subgraph CoreRunner Group
+    subgraph CoreRunner["CoreRunner Group"]
         CR_Text
         CR_Details
     end
@@ -161,7 +161,7 @@ graph LR
     class CR_Details label;
 
     %% Styling for labels and text
-    class Browser Group,WebApp Group,LiveSpeed Group,Redis Group,Postgres Group,CTLWorker Group,DownloadsWorker Group,CoreRunner Group fill:none,stroke:none;
+    class Browser,WebApp,LiveSpeed,Redis,Postgres,CTLWorker,DownloadsWorker,CoreRunner fill:none,stroke:none;
 ```
 
 [![Where do Redis and RabbitMQ fit?](https://files.catbox.moe/v94qmd.jpg)](https://files.catbox.moe/v94qmd.jpg)
