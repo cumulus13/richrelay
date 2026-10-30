@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "richrelay"
-version = "1.0.7"
+version = "1.0.8"
 description = "Send rich.print, Console.log, logging and exceptions to syslog (RFC 5424/3164), TCP/UDP/TLS receivers, with store-and-forward via SQLite, Redis or RabbitMQ."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,7 +13,6 @@ keywords = ["rich", "syslog", "rfc5424", "rfc3164", "logging", "gelf", "redis", 
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.9",
@@ -29,8 +28,9 @@ dependencies = [
     "rich>=12.0",
 ]
 
-[project.license]
-text = "MIT"
+license-files = [
+  "LICENSE"
+]
 
 [project.optional-dependencies]
 redis = ["redis>=4.5"]
